@@ -1,0 +1,152 @@
+-- ESP Ball Predict Separado
+local function ESP_BallPredict(on)
+    -- Proteção anti-crash
+    local canInstancePart = pcall(function() 
+        Instance.new("Part") 
+    end)
+    
+    if not canInstancePart then
+        print("ESP Ball Predict não disponível - seu executor não suporta Instance.new('Part')")
+        return
+    end
+    
+    -- Configurações
+    local RunService = game:GetService("RunService")
+    local Players = game:GetService("Players")
+    local player = Players.LocalPlayer
+    local BALL_NAME = "Ball" -- Altere se necessário
+    local dt = 0.05
+    local maxSimTime = 6
+    local maxSteps = math.ceil(maxSimTime / dt)
+    
+    -- Função para criar marcador
+    local function createMarker()
+        local part = Instance.new("Part")
+        part.Name = "PredictionMarker"
+        part.Size = Vector3.new(1.5, 0.2, 1.5)
+        part.Anchored = true
+        part.CanCollide = false
+        part.Material = Enum.Material.Neon
+        part.Color = Color3.fromRGB(0, 200, 120)
+        part.Transparency = 0.4
+        part.TopSurface = Enum.SurfaceType.Smooth
+        part.BottomSurface = Enum.SurfaceType.Smooth
+        
+        local decal = Instance.new("SurfaceGui", part)
+        decal.Face = Enum.NormalId.Top
+        decal.AlwaysOnTop = true
+        
+        return part
+    end
+    
+    -- Função para encontrar a bola
+    local function getBall()
+        return workspace:FindFirstChild(BALL_NAME)
+    end
+    
+    -- Função para prever onde a bola vai cair
+    local function predictLanding(initialPos, initialVel)
+        local gravity = workspace.Gravity
+        local acc = Vector3.new(0, -gravity, 0)
+        local prevPos = initialPos
+        local vel = initialVel
+        
+        local params = RaycastParams.new()
+        params.FilterDescendantsInstances = {player.Character}
+        params.FilterType = Enum.RaycastFilterType.Blacklist
+        params.IgnoreWater = false
+        
+        for step = 1, maxSteps do
+            local t = dt
+            local nextPos = prevPos + vel * t + 0.5 * acc * (t * t)
+            local nextVel = vel + acc * t
+            local direction = nextPos - prevPos
+            local distance = direction.Magnitude
+            
+            if distance > 0 then
+                local rayResult = workspace:Raycast(prevPos, direction, params)
+                if rayResult then
+                    return {
+                        hitPosition = rayResult.Position,
+                        hitNormal = rayResult.Normal,
+                        hitInstance = rayResult.Instance,
+                        time = (step - 1) * dt + (((rayResult.Position - prevPos).Magnitude) / ((vel + nextVel).Magnitude / 2 + 1e-6))
+                    }
+                end
+            end
+            
+            prevPos = nextPos
+            vel = nextVel
+        end
+        
+        return nil
+    end
+    
+    if on then
+        _G.BedolBallPredict = true
+        
+        -- Criar ou encontrar marcador
+        local marker = workspace:FindFirstChild("PredictionMarker")
+        if not marker then
+            marker = createMarker()
+            marker.Parent = workspace
+        end
+        marker.Transparency = 1 
+        
+        -- Conectar loop de atualização
+        if _G.BedolBallConn then 
+            _G.BedolBallConn:Disconnect()
+            _G.BedolBallConn = nil 
+        end
+        
+        _G.BedolBallConn = RunService.RenderStepped:Connect(function()
+            if not _G.BedolBallPredict then
+                marker.Transparency = 1
+                return
+            end
+            
+            local ball = getBall()
+            if not ball or not ball:IsA("BasePart") then
+                marker.Transparency = 1
+                return
+            end
+            
+            local pos = ball.Position
+            local vel = ball.Velocity
+            
+            -- Se a bola estiver parada, não mostrar marcador
+            if vel.Magnitude < 0.1 then
+                local below = workspace:Raycast(pos, Vector3.new(0, -2, 0))
+                if below then
+                    marker.Transparency = 1
+                    return
+                end
+            end
+            
+            -- Prever onde a bola vai cair
+            local result = predictLanding(pos, vel)
+            if result then
+                marker.CFrame = CFrame.new(result.hitPosition)
+                marker.Transparency = 0.4
+            else
+                marker.Transparency = 1
+            end
+        end)
+    else
+        _G.BedolBallPredict = false
+        
+        -- Desconectar loop
+        if _G.BedolBallConn then 
+            _G.BedolBallConn:Disconnect()
+            _G.BedolBallConn = nil 
+        end
+        
+        -- Esconder marcador
+        local marker = workspace:FindFirstChild("PredictionMarker")
+        if marker then 
+            marker.Transparency = 1 
+        end
+    end
+end
+
+return ESP_BallPredict
